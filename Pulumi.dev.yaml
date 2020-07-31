@@ -1,0 +1,3 @@
+config:
+  gcp:project: singular-citron-284216
+  gcp:zone: us-east4-c
