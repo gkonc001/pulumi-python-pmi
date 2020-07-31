@@ -6,7 +6,7 @@ from pulumi_kubernetes import Provider
 from pulumi_kubernetes.apps.v1 import Deployment
 from pulumi_kubernetes.core.v1 import Service, Namespace, PersistentVolumeClaim
 from pulumi_random import RandomPassword
-from pulumi_kubernetes.helm.v3 import Chart, ChartOpts, FetchOpts
+from pulumi_kubernetes.helm.v3 import Chart, ChartOpts, FetchOpts, LocalChartOpts
 from pulumi_kubernetes.yaml import ConfigFile
 from pulumi_kubernetes.rbac.v1 import ClusterRoleBinding
 from pulumi_kubernetes.networking.v1beta1 import Ingress
@@ -141,31 +141,44 @@ system_namespace = Namespace("k8s-system",
                              )
 
 scdf = Chart("scdf",
-             config=ChartOpts(
-                 chart="spring-cloud-data-flow",
-                 namespace=system_namespace.id,
-                 fetch_opts=FetchOpts(
-                     repo="https://kubernetes-charts.storage.googleapis.com/",
-                 ),
-                 values={
-                     "kafka": {
-                         "enabled": True,
-                         "persistence": {"size": "20Gi", },
-                     },
-                     "rabbitmq": {"enabled": False, },
-                     "features": {"monitoring": {"enabled": True, }, },
-                     "server": {"service": {"type": "ClusterIP", }, },
-                     "grafana": {"service": {"type": "ClusterIP", }, },
-                     "prometheus": {"proxy": {"service": {"type": "ClusterIP", }, }, },
-                     "ingress": {
-                         "enabled": True,
-                         "protocol": "http",
-                     },
-                 },
-             ),
-             opts=ResourceOptions(provider=k8s_provider, depends_on=[
-                 k8s_cluster, k8s_nodepool, system_namespace], delete_before_replace=True),
+             LocalChartOpts(
+                 path="./spring-cloud-data-flow",
              )
+             )
+
+# scdf = Chart("scdf",
+#              config=ChartOpts(
+#                  chart="spring-cloud-data-flow",
+#                  namespace=system_namespace.id,
+#                  fetch_opts=FetchOpts(
+#                      repo="https://kubernetes-charts.storage.googleapis.com/",
+#                  ),
+#                  values={
+#                      "kafka": {
+#                          "enabled": True,
+#                          "persistence": {"size": "20Gi", },
+#                      },
+#                      "rabbitmq": {"enabled": False, },
+#                      "features": {"monitoring": {"enabled": True, }, },
+#                      "server": {"service": {"type": "ClusterIP", }, },
+#                      "grafana": {"service": {
+#                          "type": "ClusterIP",
+#                         },
+#                         "spec":{
+#                             "progressDeadlineSeconds": 600,
+#                             "replicas": 1,
+#                             "revisionHistoryLimit": 10,
+#                         }, },
+#                      "prometheus": {"proxy": {"service": {"type": "ClusterIP", }, }, },
+#                      "ingress": {
+#                          "enabled": True,
+#                          "protocol": "http",
+#                      },
+#                  },
+#              ),
+#              opts=ResourceOptions(provider=k8s_provider, depends_on=[
+#                  k8s_cluster, k8s_nodepool, system_namespace], delete_before_replace=True),
+#              )
 
 data_flow_ingress = Ingress("data-flow-ingress",
                             metadata={
@@ -255,17 +268,17 @@ grafana_ingress = Ingress("grafana-ingress",
                           )
 
 
-grafana_storage = PersistentVolumeClaim("grafana-storage",
-                                        metadata={
-                                            'name': 'grafana-storage',
-                                        },
-                                        spec={
-                                            'accessModes': ['ReadWriteOnce', ],
-                                            'resources': {
-                                                'requests': {'storage': '10Gi'},
-                                            },
-                                        },
-                                        )
+# grafana_storage = PersistentVolumeClaim("grafana-storage",
+#                                         metadata={
+#                                             'name': 'grafana-storage',
+#                                         },
+#                                         spec={
+#                                             'accessModes': ['ReadWriteOnce', ],
+#                                             'resources': {
+#                                                 'requests': {'storage': '10Gi'},
+#                                             },
+#                                         },
+#                                         )
 
 # Finally, export the kubeconfig so that the client can easily access the cluster.
 # export('kubeconfig', k8s_config)
