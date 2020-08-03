@@ -1,0 +1,22 @@
+apiVersion: extensions/v1beta1
+kind: Ingress
+metadata:
+  name: prometheus-ingress
+  annotations:
+    kubernetes.io/ingress.class: nginx
+    #  nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    #  cert-manager.io/cluster-issuer: letsencrypt-staging
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+spec:
+  tls:
+    - hosts:
+        - prometheus.jedi.paradymelabs.com
+      secretName: prometheus-certificate
+  rules:
+    - host: prometheus.jedi.paradymelabs.com
+      http:
+        paths:
+          - path: /
+            backend:
+              serviceName: scdf-prometheus-server
+              servicePort: 80

@@ -1,0 +1,141 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  annotations:
+    deployment.kubernetes.io/revision: "1"
+  labels:
+    app: grafana
+    chart: grafana-4.5.0
+    heritage: Tiller
+    release: jedi-pipes
+  name: jedi-pipes-grafana
+  namespace: default
+spec:
+  progressDeadlineSeconds: 600
+  replicas: 1
+  revisionHistoryLimit: 10
+  selector:
+    matchLabels:
+      app: grafana
+      release: jedi-pipes
+  strategy:
+    rollingUpdate:
+      maxSurge: 25%
+      maxUnavailable: 25%
+    type: RollingUpdate
+  template:
+    metadata:
+      annotations:
+        checksum/config: ddb339589d7266358db99948d0e908ad3c1aa77c84fca0caa0b4dcc960dbc58c
+        checksum/dashboards-json-config: 6fdb03ee4c849b67b857cba8a91dfe457234fda94d418bd5031444972648206a
+        checksum/sc-dashboard-provider-config: 01ba4719c80b6fe911b091a7c05124b64eeece964e09c058ef8f9805daca546b
+      creationTimestamp: null
+      labels:
+        app: grafana
+        release: jedi-pipes
+    spec:
+      containers:
+        - env:
+            - name: GF_SECURITY_ADMIN_USER
+              valueFrom:
+                secretKeyRef:
+                  key: admin-user
+                  name: scdf-grafana-secret
+            - name: GF_SECURITY_ADMIN_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  key: admin-password
+                  name: scdf-grafana-secret
+          image: grafana/grafana:6.6.0
+          imagePullPolicy: IfNotPresent
+          livenessProbe:
+            failureThreshold: 10
+            httpGet:
+              path: /api/health
+              port: 3000
+              scheme: HTTP
+            initialDelaySeconds: 60
+            periodSeconds: 10
+            successThreshold: 1
+            timeoutSeconds: 30
+          name: grafana
+          ports:
+            - containerPort: 80
+              name: service
+              protocol: TCP
+            - containerPort: 3000
+              name: grafana
+              protocol: TCP
+          readinessProbe:
+            failureThreshold: 3
+            httpGet:
+              path: /api/health
+              port: 3000
+              scheme: HTTP
+            periodSeconds: 10
+            successThreshold: 1
+            timeoutSeconds: 1
+          resources: {}
+          terminationMessagePath: /dev/termination-log
+          terminationMessagePolicy: File
+          volumeMounts:
+            - mountPath: /etc/grafana/grafana.ini
+              name: config
+              subPath: grafana.ini
+            - mountPath: /etc/grafana/provisioning/datasources/datasources.yaml
+              name: scdf-grafana-ds-cm
+              readOnly: true
+              subPath: datasources.yaml
+            - mountPath: /var/lib/grafana
+              #name: storage
+              name: grafana-storage
+            - mountPath: /etc/grafana/provisioning/dashboards/dashboardproviders.yaml
+              name: config
+              subPath: dashboardproviders.yaml
+      dnsPolicy: ClusterFirst
+      initContainers:
+        - args:
+            - -c
+            - mkdir -p /var/lib/grafana/dashboards/default && /bin/sh /etc/grafana/download_dashboards.sh
+          command:
+            - /bin/sh
+          image: appropriate/curl:latest
+          imagePullPolicy: IfNotPresent
+          name: download-dashboards
+          resources: {}
+          terminationMessagePath: /dev/termination-log
+          terminationMessagePolicy: File
+          volumeMounts:
+            - mountPath: /etc/grafana/download_dashboards.sh
+              name: config
+              subPath: download_dashboards.sh
+            - mountPath: /var/lib/grafana
+              #name: storage
+              name: grafana-storage
+      restartPolicy: Always
+      schedulerName: default-scheduler
+      securityContext:
+        fsGroup: 472
+        runAsUser: 472
+      serviceAccount: jedi-pipes-grafana
+      serviceAccountName: jedi-pipes-grafana
+      terminationGracePeriodSeconds: 30
+      volumes:
+        - configMap:
+            defaultMode: 420
+            name: jedi-pipes-grafana
+          name: config
+        - configMap:
+            defaultMode: 420
+            name: scdf-grafana-ds-cm
+          name: scdf-grafana-ds-cm
+        - configMap:
+            defaultMode: 420
+            name: jedi-pipes-grafana-dashboards-default
+          name: dashboards-default
+        - emptyDir: {}
+          name: storage
+        - persistentVolumeClaim:
+            claimName: grafana-storage
+          name: grafana-storage
+

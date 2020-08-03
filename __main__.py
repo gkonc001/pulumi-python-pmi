@@ -65,6 +65,7 @@ k8s_nodepool = NodePool("k8s-cluster-nodepool",
                             depends_on=[k8s_cluster], delete_before_replace=True),
                         )
 
+
 # Manufacture a GKE-style Kubeconfig. Note that this is slightly "different" because of the way GKE requires
 # gcloud to be in the picture for cluster authentication (rather than using the client cert/key directly).
 k8s_info = Output.all(
@@ -99,7 +100,6 @@ users:
 # Make a Kubernetes provider instance that uses our cluster from above.
 k8s_provider = Provider('gke_k8s', kubeconfig=k8s_config)
 
-
 # crb = ClusterRoleBinding('cluster-admin-binding',
 #                          role_ref={'api_group': 'rbac.authorization.k8s.io',
 #                                    'kind': 'ClusterRole', 'name': 'cluster-admin'},
@@ -117,8 +117,14 @@ k8s_provider = Provider('gke_k8s', kubeconfig=k8s_config)
 
 # cert_issuer = ConfigFile('vert-issuer', './yaml/cluster-issuer.yaml')
 
-nginx_ingress = Chart("nginx-ingress",
+system_namespace = Namespace("test-system",
+                             opts=ResourceOptions(provider=k8s_provider, depends_on=[
+                                                  k8s_cluster, k8s_nodepool]),
+                             )
+
+nginx_ingress = Chart("nginx-ingress-test",
                       config=ChartOpts(
+                          namespace=system_namespace.id,
                           chart="nginx-ingress",
                           fetch_opts=FetchOpts(
                               repo="https://kubernetes-charts.storage.googleapis.com/",
@@ -135,137 +141,122 @@ nginx_ingress = Chart("nginx-ingress",
                           k8s_cluster, k8s_nodepool], delete_before_replace=True),
                       )
 
-system_namespace = Namespace("k8s-system",
-                             opts=ResourceOptions(provider=k8s_provider, depends_on=[
-                                                  k8s_cluster, k8s_nodepool]),
-                             )
 
-scdf = Chart("scdf",
-             LocalChartOpts(
-                 path="./spring-cloud-data-flow",
+scdf = Chart("spring-chart",
+             #  config=LocalChartOpts(
+             config=ChartOpts(
+                 chart="spring-cloud-data-flow",
+                 namespace=system_namespace.id,
+                 #  path="./spring-cloud-data-flow",
+                 fetch_opts=FetchOpts(
+                     repo="https://kubernetes-charts.storage.googleapis.com/",
+                 ),
+                 values={
+                     "kafka": {
+                         "enabled": True,
+                         "persistence": {"size": "20Gi", },
+                     },
+                     "rabbitmq": {"enabled": False, },
+                     "features": {"monitoring": {"enabled": True, }, },
+                     "server": {"service": {"type": "ClusterIP", }, },
+                     "grafana": {"service": {"type": "ClusterIP", }, },
+                     "prometheus": {"proxy": {"service": {"type": "ClusterIP", }, }, },
+                     "ingress": {
+                         "enabled": True,
+                         "protocol": "http",
+                     },
+                 },
+             ),
+             opts=ResourceOptions(provider=k8s_provider, depends_on=[
+                 k8s_cluster, k8s_nodepool, system_namespace], delete_before_replace=True),
              )
-             )
 
-# scdf = Chart("scdf",
-#              config=ChartOpts(
-#                  chart="spring-cloud-data-flow",
-#                  namespace=system_namespace.id,
-#                  fetch_opts=FetchOpts(
-#                      repo="https://kubernetes-charts.storage.googleapis.com/",
-#                  ),
-#                  values={
-#                      "kafka": {
-#                          "enabled": True,
-#                          "persistence": {"size": "20Gi", },
-#                      },
-#                      "rabbitmq": {"enabled": False, },
-#                      "features": {"monitoring": {"enabled": True, }, },
-#                      "server": {"service": {"type": "ClusterIP", }, },
-#                      "grafana": {"service": {
-#                          "type": "ClusterIP",
-#                         },
-#                         "spec":{
-#                             "progressDeadlineSeconds": 600,
-#                             "replicas": 1,
-#                             "revisionHistoryLimit": 10,
-#                         }, },
-#                      "prometheus": {"proxy": {"service": {"type": "ClusterIP", }, }, },
-#                      "ingress": {
-#                          "enabled": True,
-#                          "protocol": "http",
-#                      },
-#                  },
-#              ),
-#              opts=ResourceOptions(provider=k8s_provider, depends_on=[
-#                  k8s_cluster, k8s_nodepool, system_namespace], delete_before_replace=True),
-#              )
+# data_flow_ingress = Ingress("data-flow-ingress",
+#                             metadata={
+#                                 'name': 'scdf-dashboard-ingress',
+#                                 'annotations': {
+#                                     "kubernetes.io/ingress.class": "nginx",
+#                                     "cert-manager.io/cluster-issuer": "letsencrypt-staging"
+#                                     #            "cert-manager.io/cluster-issuer": "letsencrypt-prod"
+#                                 },
+#                             },
+#                             spec={
+#                                 'rules': [{
+#                                     'host': "scdf.gk.paradymelabs.com",
+#                                     'http': {
+#                                         'paths': [{
+#                                             "path": "/",
+#                                             "backend": {
+#                                                 "serviceName": "scdf-data-flow-server",
+#                                                 "servicePort": "80",
+#                                             }
+#                                         }, ],
+#                                     },
+#                                 }, ],
+#                                 'tls': [{
+#                                     'hosts': ["scdf.gk.paradymelabs.com", ],
+#                                     'secretName':'dataflow-certificate',
+#                                 }, ],
+#                             },
+#                             )
 
-data_flow_ingress = Ingress("data-flow-ingress",
-                            metadata={
-                                'name': 'scdf-dashboard-ingress',
-                                'annotations': {
-                                    "kubernetes.io/ingress.class": "nginx",
-                                    "cert-manager.io/cluster-issuer": "letsencrypt-staging"
-                                    #            "cert-manager.io/cluster-issuer": "letsencrypt-prod"
-                                },
-                            },
-                            spec={
-                                'rules': [{
-                                    'host': "scdf.gk.paradymelabs.com",
-                                    'http': {
-                                        'paths': [{
-                                            "path": "/",
-                                            "backend": {
-                                                "serviceName": "scdf-data-flow-server",
-                                                "servicePort": "80",
-                                            }
-                                        }, ],
-                                    },
-                                }, ],
-                                'tls': [{
-                                    'hosts': ["scdf.gk.paradymelabs.com", ],
-                                    'secretName':'dataflow-certificate',
-                                }, ],
-                            },
-                            )
+# prometheus_ingress = Ingress("prometheus-ingress",
+#                              metadata={
+#                                  'name': 'prometheus-ingress',
+#                                  'annotations': {
+#                                      "kubernetes.io/ingress.class": "nginx",
+#                                      "cert-manager.io/cluster-issuer": "letsencrypt-staging"
+#                                      #            "cert-manager.io/cluster-issuer": "letsencrypt-prod"
+#                                  },
+#                              },
+#                              spec={
+#                                  'rules': [{
+#                                      'host': "prometheus.gk.paradymelabs.com",
+#                                      'http': {
+#                                          'paths': [{
+#                                              "path": "/",
+#                                              "backend": {
+#                                                  "serviceName": "scdf-prometheus-server",
+#                                                  "servicePort": "80",
+#                                              }
+#                                          }, ],
+#                                      },
+#                                  }, ],
+#                                  'tls': [{
+#                                      'hosts': ["prometheus.gk.paradymelabs.com", ],
+#                                      'secretName':'prometheus-certificate',
+#                                  }, ],
+#                              },
+#                              )
 
-prometheus_ingress = Ingress("prometheus-ingress",
-                             metadata={
-                                 'name': 'prometheus-ingress',
-                                 'annotations': {
-                                     "kubernetes.io/ingress.class": "nginx",
-                                     "cert-manager.io/cluster-issuer": "letsencrypt-staging"
-                                     #            "cert-manager.io/cluster-issuer": "letsencrypt-prod"
-                                 },
-                             },
-                             spec={
-                                 'rules': [{
-                                     'host': "prometheus.gk.paradymelabs.com",
-                                     'http': {
-                                         'paths': [{
-                                             "path": "/",
-                                             "backend": {
-                                                 "serviceName": "scdf-prometheus-server",
-                                                 "servicePort": "80",
-                                             }
-                                         }, ],
-                                     },
-                                 }, ],
-                                 'tls': [{
-                                     'hosts': ["prometheus.gk.paradymelabs.com", ],
-                                     'secretName':'prometheus-certificate',
-                                 }, ],
-                             },
-                             )
-
-grafana_ingress = Ingress("grafana-ingress",
-                          metadata={
-                              'name': 'grafana-ingress',
-                              'annotations': {
-                                  "kubernetes.io/ingress.class": "nginx",
-                                  "cert-manager.io/cluster-issuer": "letsencrypt-staging"
-                                  #            "cert-manager.io/cluster-issuer": "letsencrypt-prod"
-                              },
-                          },
-                          spec={
-                              'rules': [{
-                                  'host': "grafana.gk.paradymelabs.com",
-                                  'http': {
-                                      'paths': [{
-                                          "path": "/",
-                                          "backend": {
-                                              "serviceName": "scdf-grafana-server",
-                                              "servicePort": "80",
-                                          }
-                                      }, ],
-                                  },
-                              }, ],
-                              'tls': [{
-                                  'hosts': ["grafana.gk.paradymelabs.com", ],
-                                  'secretName':'grafana-certificate',
-                              }, ],
-                          },
-                          )
+# grafana_ingress = Ingress("grafana-ingress",
+#                           metadata={
+#                               'name': 'grafana-ingress',
+#                               'annotations': {
+#                                   "kubernetes.io/ingress.class": "nginx",
+#                                   "cert-manager.io/cluster-issuer": "letsencrypt-staging"
+#                                   #            "cert-manager.io/cluster-issuer": "letsencrypt-prod"
+#                               },
+#                           },
+#                           spec={
+#                               'rules': [{
+#                                   'host': "grafana.gk.paradymelabs.com",
+#                                   'http': {
+#                                       'paths': [{
+#                                           "path": "/",
+#                                           "backend": {
+#                                               "serviceName": "scdf-grafana-server",
+#                                               "servicePort": "80",
+#                                           }
+#                                       }, ],
+#                                   },
+#                               }, ],
+#                               'tls': [{
+#                                   'hosts': ["grafana.gk.paradymelabs.com", ],
+#                                   'secretName':'grafana-certificate',
+#                               }, ],
+#                           },
+#                           )
 
 
 # grafana_storage = PersistentVolumeClaim("grafana-storage",
