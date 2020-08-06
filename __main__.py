@@ -100,16 +100,20 @@ users:
 # Make a Kubernetes provider instance that uses our cluster from above.
 k8s_provider = Provider('gke_k8s', kubeconfig=k8s_config)
 
-# crb = ClusterRoleBinding('cluster-admin-binding',
-#                          role_ref={'api_group': 'rbac.authorization.k8s.io',
-#                                    'kind': 'ClusterRole', 'name': 'cluster-admin'},
-#                          subjects=[
-#                            {'api_group': 'rbac.authorization.k8s.io', 'kind': 'User', 'name': me.email}
-#                            ],
-#                          opts=ResourceOptions(
-#                              provider=k8s_provider, depends_on=[k8s_cluster])
-#                          )
+crb = ClusterRoleBinding('cluster-admin-binding',
+                         role_ref={'api_group': 'rbac.authorization.k8s.io',
+                                   'kind': 'ClusterRole', 'name': 'cluster-admin'},
+                         subjects=[
+                           {'api_group': 'rbac.authorization.k8s.io', 'kind': 'User', 'name': me.email}
+                           ],
+                         opts=ResourceOptions(
+                             provider=k8s_provider, depends_on=[k8s_cluster])
+                         )
 
+system_namespace = Namespace("test-system",
+                             opts=ResourceOptions(provider=k8s_provider, depends_on=[
+                                                  k8s_cluster, k8s_nodepool]),
+                             )
 
 # cert_manager = ConfigFile('cert_manager',
 #   file_id="./cert-manager-legacy.yaml",
@@ -117,15 +121,10 @@ k8s_provider = Provider('gke_k8s', kubeconfig=k8s_config)
 
 # cert_issuer = ConfigFile('vert-issuer', './yaml/cluster-issuer.yaml')
 
-system_namespace = Namespace("test-system",
-                             opts=ResourceOptions(provider=k8s_provider, depends_on=[
-                                                  k8s_cluster, k8s_nodepool]),
-                             )
-
 nginx_ingress = Chart("nginx-ingress-test",
                       config=ChartOpts(
-                          namespace=system_namespace.id,
                           chart="nginx-ingress",
+                           namespace=system_namespace.id,
                           fetch_opts=FetchOpts(
                               repo="https://kubernetes-charts.storage.googleapis.com/",
                           ),
@@ -138,38 +137,38 @@ nginx_ingress = Chart("nginx-ingress-test",
                           },
                       ),
                       opts=ResourceOptions(provider=k8s_provider, depends_on=[
-                          k8s_cluster, k8s_nodepool], delete_before_replace=True),
+                          k8s_cluster, k8s_nodepool, system_namespace], delete_before_replace=True),
                       )
 
 
-scdf = Chart("spring-chart",
-             #  config=LocalChartOpts(
-             config=ChartOpts(
-                 chart="spring-cloud-data-flow",
-                 namespace=system_namespace.id,
-                 #  path="./spring-cloud-data-flow",
-                 fetch_opts=FetchOpts(
-                     repo="https://kubernetes-charts.storage.googleapis.com/",
-                 ),
-                 values={
-                     "kafka": {
-                         "enabled": True,
-                         "persistence": {"size": "20Gi", },
-                     },
-                     "rabbitmq": {"enabled": False, },
-                     "features": {"monitoring": {"enabled": True, }, },
-                     "server": {"service": {"type": "ClusterIP", }, },
-                     "grafana": {"service": {"type": "ClusterIP", }, },
-                     "prometheus": {"proxy": {"service": {"type": "ClusterIP", }, }, },
-                     "ingress": {
-                         "enabled": True,
-                         "protocol": "http",
-                     },
-                 },
-             ),
-             opts=ResourceOptions(provider=k8s_provider, depends_on=[
-                 k8s_cluster, k8s_nodepool, system_namespace], delete_before_replace=True),
-             )
+# scdf = Chart("spring-chart",
+#               config=LocalChartOpts(
+#             #  config=ChartOpts(
+#                 #  chart="spring-cloud-data-flow",
+#                  namespace=system_namespace.id,
+#                   path="./spring-cloud-data-flow",
+#                 #  fetch_opts=FetchOpts(
+#                 #      repo="https://kubernetes-charts.storage.googleapis.com/",
+#                 #  ),
+#                  values={
+#                      "kafka": {
+#                          "enabled": True,
+#                          "persistence": {"size": "20Gi", },
+#                      },
+#                      "rabbitmq": {"enabled": False, },
+#                      "features": {"monitoring": {"enabled": True, }, },
+#                      "server": {"service": {"type": "ClusterIP", }, },
+#                      "grafana": {"service": {"type": "ClusterIP", }, },
+#                      "prometheus": {"proxy": {"service": {"type": "ClusterIP", }, }, },
+#                      "ingress": {
+#                          "enabled": True,
+#                          "protocol": "http",
+#                      },
+#                  },
+#              ),
+#              opts=ResourceOptions(provider=k8s_provider, depends_on=[
+#                  k8s_cluster, k8s_nodepool, system_namespace], delete_before_replace=True),
+#              )
 
 # data_flow_ingress = Ingress("data-flow-ingress",
 #                             metadata={
@@ -272,7 +271,7 @@ scdf = Chart("spring-chart",
 #                                         )
 
 # Finally, export the kubeconfig so that the client can easily access the cluster.
-# export('kubeconfig', k8s_config)
+export('kubeconfig', k8s_config)
 # Export the k8s ingress IP to access the canary deployment
 # export('ingress_ip', Output.all(ingress.status['load_balancer']['ingress'][0]['ip']))
 # export('ingress_ip', Output.all(nginx_ingress))
